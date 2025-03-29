@@ -4,3 +4,4 @@ python-dotenv
 pillow
 google-generativeai
 PyPDF2
+python-multipart
