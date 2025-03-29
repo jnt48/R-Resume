@@ -5,7 +5,7 @@ import os
 import base64
 import io
 from PIL import Image
-import pdf2image
+import PyPDF2
 import google.generativeai as genai
 
 load_dotenv()
@@ -21,23 +21,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def get_gemini_response(input_text, pdf_content, prompt):
+def get_gemini_response(job_description_text: str, pdf_text: str, prompt: str) -> str:
+    """
+    Calls the Gemini model with the job description, extracted PDF text,
+    and any additional prompt instructions.
+    """
     model = genai.GenerativeModel('gemini-1.5-flash')
-    response = model.generate_content([input_text, pdf_content[0], prompt])
+    # We pass the text content instead of an image
+    response = model.generate_content([job_description_text, pdf_text, prompt])
     return response.text
 
-def input_pdf_setup(uploaded_file: bytes):
+def extract_pdf_text(uploaded_file: bytes) -> str:
+    """
+    Extracts text from the uploaded PDF using PyPDF2.
+    """
     try:
-        images = pdf2image.convert_from_bytes(uploaded_file)
-        first_page = images[0]
-        img_byte_arr = io.BytesIO()
-        first_page.save(img_byte_arr, format='JPEG')
-        img_byte_arr = img_byte_arr.getvalue()
-        pdf_parts = [{
-            "mime_type": "image/jpeg",
-            "data": base64.b64encode(img_byte_arr).decode()
-        }]
-        return pdf_parts
+        # Read PDF from bytes
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file))
+        text_content = []
+        for page in pdf_reader.pages:
+            text_content.append(page.extract_text() or "")
+        return "\n".join(text_content)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing PDF: {e}")
 
@@ -51,24 +55,28 @@ async def analyze_resume(
         raise HTTPException(status_code=400, detail="No file uploaded.")
     
     try:
-        pdf_content = input_pdf_setup(await uploaded_file.read())
+        # Extract text from the uploaded PDF
+        pdf_text = extract_pdf_text(await uploaded_file.read())
         
+        # Determine which prompt to use
         if mode == "evaluation":
             prompt = """
-            You are an experienced Technical Human Resource Manager. Review the provided resume against the job description.
+            You are an experienced Technical Human Resource Manager. Review the provided resume text against the job description.
             Share your professional evaluation on whether the candidate's profile aligns with the role.
             Highlight the strengths and weaknesses in relation to the specified job requirements.
             """
         elif mode == "match_percentage":
             prompt = """
-            You are a skilled ATS scanner. Evaluate the resume against the job description.
+            You are a skilled ATS scanner. Evaluate the resume text against the job description.
             Provide a percentage match, followed by missing keywords and final thoughts.
             """
         else:
             raise HTTPException(status_code=400, detail="Invalid mode. Use 'evaluation' or 'match_percentage'.")
-        
-        response = get_gemini_response(job_description, pdf_content, prompt)
-        return {"response": response}
+
+        # Generate a response from the Gemini model
+        response_text = get_gemini_response(job_description, pdf_text, prompt)
+        return {"response": response_text}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
