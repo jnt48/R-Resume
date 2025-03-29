@@ -22,25 +22,17 @@ app.add_middleware(
 )
 
 def get_gemini_response(job_description_text: str, pdf_text: str, prompt: str) -> str:
-    """
-    Calls the Gemini model with the job description, extracted PDF text,
-    and any additional prompt instructions.
-    """
     model = genai.GenerativeModel('gemini-1.5-flash')
-    # We pass the text content instead of an image
     response = model.generate_content([job_description_text, pdf_text, prompt])
     return response.text
 
 def extract_pdf_text(uploaded_file: bytes) -> str:
-    """
-    Extracts text from the uploaded PDF using PyPDF2.
-    """
     try:
-        # Read PDF from bytes
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file))
         text_content = []
         for page in pdf_reader.pages:
-            text_content.append(page.extract_text() or "")
+            text = page.extract_text()
+            text_content.append(text if text else "")
         return "\n".join(text_content)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing PDF: {e}")
@@ -55,10 +47,8 @@ async def analyze_resume(
         raise HTTPException(status_code=400, detail="No file uploaded.")
     
     try:
-        # Extract text from the uploaded PDF
         pdf_text = extract_pdf_text(await uploaded_file.read())
         
-        # Determine which prompt to use
         if mode == "evaluation":
             prompt = """
             You are an experienced Technical Human Resource Manager. Review the provided resume text against the job description.
@@ -72,11 +62,9 @@ async def analyze_resume(
             """
         else:
             raise HTTPException(status_code=400, detail="Invalid mode. Use 'evaluation' or 'match_percentage'.")
-
-        # Generate a response from the Gemini model
+        
         response_text = get_gemini_response(job_description, pdf_text, prompt)
         return {"response": response_text}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
